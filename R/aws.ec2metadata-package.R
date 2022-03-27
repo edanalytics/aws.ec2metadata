@@ -12,9 +12,31 @@ get_timeout <- function(default_timeout="1") {
     return(timeout*1000)
 }
 
+get_token <- function() {
+    timeout <- get_timeout()
+    token_handle <- curl::new_handle(timeout_ms = timeout)
+    curl::handle_setheaders(token_handle, "X-aws-ec2-metadata-token-ttl-seconds" = "21600")
+    curl::handle_setopt(token_handle, "customrequest" = "PUT")
+    token_response <- try(
+        curl::curl_fetch_memory("http://169.254.169.254/latest/api/token", handle = token_handle),
+        silent = TRUE
+    )
+    if (inherits(token_response, "try-error")) {
+        return(NULL)
+    } else if (token_response[["status_code"]] >= 400) {
+        return(NULL)
+    } else {
+        return(parse_lines(rawToChar(token_response[["content"]])))
+    }
+}
+
 fetch <- function(uri) {
     timeout <- get_timeout()
     handle <- curl::new_handle(timeout_ms = timeout)
+    token <- get_token()
+    if (!is.null(token)) {
+        curl::handle_setheaders(handle, "X-aws-ec2-metadata-token" = token)
+    }
     
     response <- try(
         curl::curl_fetch_memory(uri,
